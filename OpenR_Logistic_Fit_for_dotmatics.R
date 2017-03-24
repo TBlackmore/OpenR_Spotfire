@@ -1,4 +1,4 @@
-
+load("debug.RData")
 library(plyr)
 library(drc)
 
@@ -18,6 +18,23 @@ minInflection = 0
 slopeLimits = '-Inf,0'
 fitForEach = 'Sample'
 EDLevel = 50
+EDType
+
+#Inputs
+Input
+fixedUpperVal
+fixedLowerVal
+fixedSlopeVal
+minLower
+maxLower
+minUpper
+maxUpper
+maxInflection
+minInflection
+slopeLimits
+fitForEach
+EDLevel
+EDType
 
 #Convert inputs
 fixedLower <- as.numeric(fixedLowerVal)
@@ -34,7 +51,6 @@ maxInflection  <- as.numeric(maxInflection)
 minInflection <- as.numeric(minInflection)
 maxSlope <- as.numeric(substring(slopeLimits,regexpr(',',slopeLimits)[1]+1))
 minSlope <- as.numeric(substr(slopeLimits,1,regexpr(',',slopeLimits)[1]-1))
-EDLevel
 
 #Return fits for each sample, or each sample on each plate
 groupBy <- if (fitForEach == 'Sample') ~ SAMPLE_ID + EXPERIMENT_ID + PROTOCOL_ID else ~ SAMPLE_ID + EXPERIMENT_ID + SAMPLE_PLATE_ID + PROTOCOL_ID
@@ -73,7 +89,7 @@ fit4pl <- function (df) {
   fit <- drm(df$RESPONSE~df$CONC, 
       data = sampleData, 
       fct = LL.4(fixed=c(fixedSlopeVal, fixedLowerVal, fixedUpperVal, NA), 
-            names = c("Slope", "Lower Limit", "Upper Limit", "ED50")), 
+            names = c("Slope", "Lower Limit", "Upper Limit", "ed")), 
       control = drmc(errorm = FALSE, warnVal = -1, noMessage = TRUE),
       lowerl = lowerlimit,
       upperl = upperlimit
@@ -81,13 +97,13 @@ fit4pl <- function (df) {
   parms <- c(fit$parmMat)
   names(parms) <- unlist(fit$parNames[1])
   #add fixed parameters to parms to keep number of columns consistent
-  if (fixedLowerOn) parms <- append(parms, fixedSlopeVal,0)
+  if (fixedSlopeOn) parms <- append(parms, fixedSlopeVal,0)
   if (fixedLowerOn) parms <- append(parms, fixedLowerVal,1)
   if (fixedUpperOn) parms <- append(parms, fixedUpperVal,2)
-  ed50 <- ED(fit,50, interval = "delta")
-  ed50flat <- c(ed50)
-  names(ed50flat) <- c(outer("ED50", colnames(ed50), paste, sep = ":"))
-  parms <- c(parms, ed50flat)
+  ed <- ED(fit,EDLevel, interval = "delta", type = EDType)
+  edflat <- c(ed)
+  names(edflat) <- c(outer("ED", colnames(ed), paste, sep = ":"))
+  parms <- c(parms, edflat)
   return(parms)
 }
 
@@ -100,9 +116,35 @@ out <- ddply(sampleData, groupBy,
                                   })
 )
 
-#Replace NaN with NA and rename columns
-out[is.na(out)] <- NA
-names(out) <- c("SAMPLE_ID", "EXPERIMENT_ID", "PROTOCOL_ID", "Slope", "Lower Limit", "Upper Limit", "ED", "ED Estimate", "ED Std Error", "ED Lower CI", "ED Upper CI")
+
+names(out) <- c("SAMPLE_ID", "EXPERIMENT_ID", "PROTOCOL_ID", "Slope", "Lower Limit", "Upper Limit", "Inflection Point", "ED Estimate", "ED Std Error", "ED Lower CI", "ED Upper CI")
+out <- cbind(out,
+            "fixedLower" = fixedLower,
+            "fixedUpper" = fixedUpper,
+            "fixedSlope" = fixedSlope,
+            "minLower" = minLower,
+            "maxLower" = maxLower,
+            "minUpper" = minUpper,
+            "maxUpper" = maxUpper,
+            "maxInflection" = maxInflection,
+            "minInflection" = minInflection,
+            "maxSlope" = maxSlope,
+            "minSlope" = minSlope,
+            "EDLevel" = EDLevel,
+            "EDType" = EDType)
+#Replace NaN with NA
+out[is.na(out)] <- NA            
+
+#Function to round all numeric columns in a data frame
+round_df <- function(df, digits) {
+  nums <- vapply(df, is.numeric, FUN.VALUE = logical(1))
+  
+  df[,nums] <- round(df[,nums], digits = digits)
+  
+  (df)
+}
+
+out <- round_df(out,30)
 
 
 #tf <- daply(out, ~SAMPLE_ID, function(x) nchar(x$SAMPLE_ID)) > 10
@@ -129,7 +171,7 @@ y1 <- min + ((max - min) / (1 + 10^(hill*(log10(X50)- log10(t)))))  + c.norm # u
 
 fit <- drm(y1~t, 
            fct = LL.4(fixed=c(NA, NA, NA, NA), 
-          names = c("Slope", "Lower Limit", "Upper Limit", "ED50")), 
+          names = c("Slope", "Lower Limit", "Upper Limit", "ed")), 
            control = drmc(errorm = FALSE, warnVal = -1, noMessage = TRUE))
 ED(fit,50)
 plot(fit)
@@ -137,7 +179,7 @@ plot(fit)
 tmp <- subset.data.frame(Input, Input$SAMPLE_ID == "WEHI-1213557-001")
 fit <- drm(tmp$RESPONSE~tmp$CONC, 
            fct = LL.5(fixed=c(NA, 1, NA, NA, 1), 
-                      names = c("Slope", "Lower Limit", "Upper Limit", "ED50", "skew")), 
+                      names = c("Slope", "Lower Limit", "Upper Limit", "ed", "skew")), 
            control = drmc(errorm = TRUE, warnVal = 1, noMessage = FALSE))
 
 lowerlimit <- c(-Inf,  -Inf, 0)
@@ -146,7 +188,7 @@ upperlimit <- c(Inf,  maxUpper, maxInflection)
 fit <- drm(RESPONSE~CONC, 
            data = tmp, 
            fct = LL.5(fixed=c(NA, 0, NA, NA, 1), 
-                      names = c("Slope", "Lower Limit", "Upper Limit", "ED50", "Skew")), 
+                      names = c("Slope", "Lower Limit", "Upper Limit", "ed", "Skew")), 
            control = drmc(errorm = FALSE, warnVal = -1, noMessage = TRUE),
            lowerl = lowerlimit,
            upperl = upperlimit

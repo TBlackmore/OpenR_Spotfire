@@ -15,3 +15,13 @@ sampleData <- subset.data.frame(sampleData, (sampleData$KNOCKOUT != "Y" | is.na(
 
 out <- ddply(sampleData, "SAMPLE_ID", linfit)
 
+#Function to round all numeric columns in a data frame
+round_df <- function(df, digits) {
+  nums <- vapply(df, is.numeric, FUN.VALUE = logical(1))
+  
+  df[,nums] <- round(df[,nums], digits = digits)
+  
+  (df)
+}
+
+out <- round_df(out,30)
