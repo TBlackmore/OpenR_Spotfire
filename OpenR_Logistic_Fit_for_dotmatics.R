@@ -88,6 +88,8 @@ fit4pl <- function (df) {
   print(df$SAMPLE_ID[1])
   groups <- c(UNIQUE_PROP_ID = paste(unique(df$UNIQUE_PROP_ID), collapse = ", "))
   groups <- c(groups, SAMPLE_PLATE_ID = paste(unique(df$SAMPLE_PLATE_ID), collapse = ", "))
+  groups <- c(groups, "Max Conc" = max(df$CONC))
+
   tryCatch({
     fit <- drm(df$RESPONSE~df$CONC, 
                data = sampleData, 
@@ -107,11 +109,13 @@ fit4pl <- function (df) {
       edflat <- c(ed)
       names(edflat) <- c(outer("ED", colnames(ed), paste, sep = ":"))
       parms <- c(parms, edflat)
+      
     } else {
       parms <- rep(NaN, 8)
     }
     
   })
+  
   return(c(groups,parms))
 }
 
@@ -119,7 +123,7 @@ fit4pl <- function (df) {
 out <- ddply(sampleData, groupBy, function(t) fit4pl(t))
 
 
-names(out) <- c("SAMPLE_ID", "EXPERIMENT_ID", "PROTOCOL_ID", "UNIQUE_PROP_ID", "SAMPLE_PLATE_ID", "Slope", "Lower Limit", "Upper Limit", "Inflection Point", "ED Estimate", "ED Std Error", "ED Lower CI", "ED Upper CI")
+names(out) <- c("SAMPLE_ID", "EXPERIMENT_ID", "PROTOCOL_ID", "UNIQUE_PROP_ID", "SAMPLE_PLATE_ID", "Max Conc", "Slope", "Lower Limit", "Upper Limit", "Inflection Point", "ED Estimate", "ED Std Error", "ED Lower CI", "ED Upper CI") 
 out <- cbind(out,
             "fixedLower" = fixedLower,
             "fixedUpper" = fixedUpper,
@@ -136,7 +140,7 @@ out <- cbind(out,
             "EDType" = EDType)
 #Replace NaN with NA
 out[is.na(out)] <- NA            
-as.numeric(out)
+
 #Function to round all numeric columns in a data frame
 round_df <- function(df, digits) {
   nums <- vapply(df, is.numeric, FUN.VALUE = logical(1))
