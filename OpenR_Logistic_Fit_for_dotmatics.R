@@ -2,6 +2,7 @@ load("debug.RData")
 library(plyr)
 library(drc)
 
+
 #Inputs
 fixedUpperOn = FALSE
 fixedUpperVal = c('Upper Limit:(Intercept)'=110)
@@ -60,18 +61,10 @@ sampleData <- subset.data.frame(Input, (Input$KNOCKOUT != "Y" | is.na(Input$KNOC
 #Remove anything not marked as a sample
 sampleData <- subset.data.frame(sampleData, sampleData$SAMPTYPE == "S")
 
-#Calculate fit limits based on filtered data
-#minUpper <- -Inf
-#maxUpper <- max(sampleData$RESPONSE) * 2
-#minLower <- min(sampleData$RESPONSE) - (maxUpper /2)
-#maxLower <- Inf
-
+#Change fixed values to NA if they're not being used
 if(fixedUpperOn == FALSE) fixedUpperVal = NA 
 if(fixedLowerOn == FALSE) fixedLowerVal = NA 
 if(fixedSlopeOn == FALSE) fixedSlopeVal = NA              
-
-#Put some limit on inflection point max to speed calculations
-#maxInflection <- max(sampleData$CONC) * 10
 
 #Set limits for fitting, skip limit for any fixed values
 lowerlimit <- c(if (fixedSlopeOn) NULL else minSlope, #Slope
@@ -93,7 +86,7 @@ fit4pl <- function (df) {
   tryCatch({
     fit <- drm(df$RESPONSE~df$CONC, 
                data = sampleData, 
-               fct = LL.4(fixed=c(fixedSlopeVal, fixedLowerVal, fixedUpperVal, NA), 
+               fct = LL.4(fixed=c(fixedSlope, fixedLower, fixedUpper, NA), 
                           names = c("Slope", "Lower Limit", "Upper Limit", "ed")), 
                control = drmc(errorm = FALSE, warnVal = -1, noMessage = TRUE),
                lowerl = lowerlimit,
@@ -138,9 +131,14 @@ out <- cbind(out,
             "minSlope" = minSlope,
             "EDLevel" = EDLevel,
             "EDType" = EDType)
+           
 #Replace NaN with NA
-out[is.na(out)] <- NA            
+#out[is.na(out)] <- NA 
 
+#Convert specified columns to numeric
+cols = c(2, 6, 7,8,9,10,11,12,13,14);    
+out[,cols] = apply(out[,cols], 2, function(x) as.numeric(as.character(x)))
+                  
 #Function to round all numeric columns in a data frame
 round_df <- function(df, digits) {
   nums <- vapply(df, is.numeric, FUN.VALUE = logical(1))
