@@ -61,6 +61,12 @@ sampleData <- subset.data.frame(Input, (Input$KNOCKOUT != "Y" | is.na(Input$KNOC
 #Remove anything not marked as a sample
 sampleData <- subset.data.frame(sampleData, sampleData$SAMPTYPE == "S")
 
+#Seperate ctrl wells
+highCtrls <- subset.data.frame(Input, Input$SAMPTYPE == 'H')
+lowCtrls <- subset.data.frame(Input, Input$SAMPTYPE == 'L')
+AverageHighCtrl <- mean(highCtrls$RESPONSE)
+AverageLowCtrl <- mean(lowCtrls$RESPONSE)
+
 #Change fixed values to NA if they're not being used
 if(fixedUpperOn == FALSE) fixedUpperVal = NA 
 if(fixedLowerOn == FALSE) fixedLowerVal = NA 
@@ -81,7 +87,7 @@ fit4pl <- function (df) {
   print(df$SAMPLE_ID[1])
   groups <- c(UNIQUE_PROP_ID = paste(unique(df$UNIQUE_PROP_ID), collapse = ", "))
   groups <- c(groups, SAMPLE_PLATE_ID = paste(unique(df$SAMPLE_PLATE_ID), collapse = ", "))
-  groups <- c(groups, "Max Conc" = max(df$CONC))
+  groups <- c(groups, "Max Conc" = max(df$CONC), "Min Conc" = min(df$CONC))
 
   tryCatch({
     fit <- drm(df$RESPONSE~df$CONC, 
@@ -102,21 +108,34 @@ fit4pl <- function (df) {
       edflat <- c(ed)
       names(edflat) <- c(outer("ED", colnames(ed), paste, sep = ":"))
       parms <- c(parms, edflat)
-      
+
     } else {
       parms <- rep(NaN, 8)
     }
-    
+  #Calculate the ED alpha, check if it's too big, small or not there
+  if (is.na(parms[5])) {
+    #if it's not there check if the values are closer to the high ctrl or low ctrl
+    meanResponse <- mean(df$RESPONSE)
+    if ((meanResponse - AverageHighCtrl) > (AverageLowCtrl - meanResponse)) {
+      ED_Alpha <- paste(">", groups['Max Conc'])
+    } else {
+      ED_Alpha <- paste("<", groups['Min Conc'])
+    }
+  } 
+  else if (parms[5] >= maxInflection) 
+    {ED_Alpha <- paste(">", groups['Max Conc'])}
+  else if (parms[5] <= minInflection) 
+    {ED_Alpha <- paste("<", groups['Min Conc'])}
   })
   
-  return(c(groups,parms))
+  return(c(groups,parms,ED_Alpha))
 }
 
 # Group data by SAMPLE_ID and apply fit function to each group
 out <- ddply(sampleData, groupBy, function(t) fit4pl(t))
 
 
-names(out) <- c("SAMPLE_ID", "EXPERIMENT_ID", "PROTOCOL_ID", "UNIQUE_PROP_ID", "SAMPLE_PLATE_ID", "Max Conc", "Slope", "Lower Limit", "Upper Limit", "Inflection Point", "ED Estimate", "ED Std Error", "ED Lower CI", "ED Upper CI") 
+names(out) <- c("SAMPLE_ID", "EXPERIMENT_ID", "PROTOCOL_ID", "UNIQUE_PROP_ID", "SAMPLE_PLATE_ID", "Max Conc", "Min Conc", "Slope", "Lower Limit", "Upper Limit", "Inflection Point", "ED Estimate", "ED Std Error", "ED Lower CI", "ED Upper CI", "ED Alpha") 
 out <- cbind(out,
             "fixedLower" = fixedLower,
             "fixedUpper" = fixedUpper,
@@ -136,7 +155,7 @@ out <- cbind(out,
 #out[is.na(out)] <- NA 
 
 #Convert specified columns to numeric
-cols = c(2, 6, 7,8,9,10,11,12,13,14);    
+cols = c(2, 6, 7,8,9,10,11,12,13,14,15);    
 out[,cols] = apply(out[,cols], 2, function(x) as.numeric(as.character(x)))
                   
 #Function to round all numeric columns in a data frame
