@@ -113,19 +113,22 @@ fit4pl <- function (df) {
       parms <- rep(NaN, 8)
     }
   #Calculate the ED alpha, check if it's too big, small or not there
+  EDLowLimit <- max(as.numeric(groups['Min Conc']), minInflection)
+  EDHighLimit <- min(as.numeric(groups['Max Conc']), maxInflection)
   if (is.na(parms[5])) {
     #if it's not there check if the values are closer to the high ctrl or low ctrl
     meanResponse <- mean(df$RESPONSE)
     if ((meanResponse - AverageHighCtrl) > (AverageLowCtrl - meanResponse)) {
-      ED_Alpha <- paste(">", groups['Max Conc'])
+      ED_Alpha <- paste("<", EDLowLimit)
     } else {
-      ED_Alpha <- paste("<", groups['Min Conc'])
+      ED_Alpha <- paste(">", EDHighLimit)
     }
   } 
-  else if (parms[5] >= maxInflection) 
-    {ED_Alpha <- paste(">", groups['Max Conc'])}
-  else if (parms[5] <= minInflection) 
-    {ED_Alpha <- paste("<", groups['Min Conc'])}
+  else if (parms[5] >= EDHighLimit) 
+    {ED_Alpha <- paste("<", EDLowLimit)}
+  else if (parms[5] <= EDLowLimit) 
+  {ED_Alpha <- paste(">", EDHighLimit)}
+  else {ED_Alpha <- as.character(parms[5])}
   })
   
   return(c(groups,parms,ED_Alpha))
