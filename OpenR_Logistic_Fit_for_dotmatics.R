@@ -1,7 +1,7 @@
+df <- subset.data.frame(Input, Input$SAMPLE_ID == 'WEHI-1251425-001')
 load("debug.RData")
 library(plyr)
 library(drc)
-
 
 #Inputs
 fixedUpperOn = FALSE
@@ -20,6 +20,7 @@ slopeLimits = '-Inf,0'
 fitForEach = 'replicate'
 EDLevel = 50
 EDType
+linSlopeConfLimit = .1
 
 #Inputs
 Input
@@ -36,6 +37,7 @@ slopeLimits
 fitForEach
 EDLevel
 EDType
+linSlopeConfLimit
 
 #Convert inputs
 fixedLower <- as.numeric(fixedLowerVal)
@@ -64,8 +66,8 @@ sampleData <- subset.data.frame(sampleData, sampleData$SAMPTYPE == "S")
 #Seperate ctrl wells
 highCtrls <- subset.data.frame(Input, Input$SAMPTYPE == 'H')
 lowCtrls <- subset.data.frame(Input, Input$SAMPTYPE == 'L')
-AverageHighCtrl <- mean(highCtrls$RESPONSE)
-AverageLowCtrl <- mean(lowCtrls$RESPONSE)
+AverageHighCtrl <- mean(highCtrls$Normalized)
+AverageLowCtrl <- mean(lowCtrls$Normalized)
 
 #Change fixed values to NA if they're not being used
 if(fixedUpperOn == FALSE) fixedUpperVal = NA 
@@ -84,13 +86,24 @@ upperlimit <- c(if (fixedSlopeOn) NULL else maxSlope, #Slope
 
 #Function to perform fit and reformat parameters
 fit4pl <- function (df) {
+  #Store per-group parameters
   print(df$SAMPLE_ID[1])
   groups <- c(UNIQUE_PROP_ID = paste(unique(df$UNIQUE_PROP_ID), collapse = ", "))
   groups <- c(groups, SAMPLE_PLATE_ID = paste(unique(df$SAMPLE_PLATE_ID), collapse = ", "))
   groups <- c(groups, "Max Conc" = max(df$CONC), "Min Conc" = min(df$CONC))
-
+  
+  #Calculate an Log(x) ~ Normalized linear fit
+  df$Log10CONC <- log10(df$CONC)
+  lin_fit<-nls(Normalized ~ yIntercept + slope * Log10CONC,
+           data = df,
+           start = list(slope= 0, yIntercept = 0))
+  lin_params <- summary(lin_fit)$parameters
+  lin_flat <- c(lin_params)
+  names(lin_flat) <- c(outer(paste("LinFit", rownames(lin_params)), colnames(lin_params), paste, sep = ":"))
+ 
+  # Calculate a logistic fit
   tryCatch({
-    fit <- drm(df$RESPONSE~df$CONC, 
+    fit <- drm(df$Normalized~df$CONC, 
                data = sampleData, 
                fct = LL.4(fixed=c(fixedSlope, fixedLower, fixedUpper, NA), 
                           names = c("Slope", "Lower Limit", "Upper Limit", "ed")), 
@@ -98,6 +111,7 @@ fit4pl <- function (df) {
                lowerl = lowerlimit,
                upperl = upperlimit
               )
+    #reformat paramters so all types of fits are consistent, and add ED## calculation
     parms <- c(fit$parmMat)
     if (length(parms) > 0) {
       names(parms) <- unlist(fit$parNames[1])
@@ -110,35 +124,66 @@ fit4pl <- function (df) {
       parms <- c(parms, edflat)
 
     } else {
+      #If fit fails to converge, insert NaNs in place of fit parameters
       parms <- rep(NaN, 8)
     }
+    
   #Calculate the ED alpha, check if it's too big, small or not there
   EDLowLimit <- max(as.numeric(groups['Min Conc']), minInflection)
   EDHighLimit <- min(as.numeric(groups['Max Conc']), maxInflection)
-  if (is.na(parms[5])) {
-    #if it's not there check if the values are closer to the high ctrl or low ctrl
-    meanResponse <- mean(df$RESPONSE)
-    if ((meanResponse - AverageHighCtrl) > (AverageLowCtrl - meanResponse)) {
+  #if it's not there or doesn't make sense
+  #check if the values are closer to the high ctrl or low ctrl
+  if (is.na(parms[5]) | 
+      (slopeLimits == "-Inf, 0" & lin_params['slope','Estimate'] < 0) |
+      (slopeLimits == "0, Inf" & lin_params['slope','Estimate'] > 0) |
+      (lin_params['slope','t value'] < linSlopeConfLimit)) {
+    meanNormalized <- mean(df$Normalized)
+    if ((meanNormalized - AverageHighCtrl) > (AverageLowCtrl - meanNormalized)) {
       ED_Alpha <- paste("<", EDLowLimit)
     } else {
       ED_Alpha <- paste(">", EDHighLimit)
     }
   } 
+  # If the ED is outside the conc or fit limits flag as >= or <=
   else if (parms[5] >= EDHighLimit) 
-    {ED_Alpha <- paste("<", EDLowLimit)}
+    {ED_Alpha <- paste(">=", EDHighLimit)}
   else if (parms[5] <= EDLowLimit) 
-  {ED_Alpha <- paste(">", EDHighLimit)}
+  {ED_Alpha <- paste("<=", EDLowLimit)}
+  # Otherwise report the ED value as is
   else {ED_Alpha <- as.character(parms[5])}
   })
   
-  return(c(groups,parms,ED_Alpha))
+  return(c(groups,parms,ED_Alpha, lin_flat))
 }
 
 # Group data by SAMPLE_ID and apply fit function to each group
 out <- ddply(sampleData, groupBy, function(t) fit4pl(t))
 
 
-names(out) <- c("SAMPLE_ID", "EXPERIMENT_ID", "PROTOCOL_ID", "UNIQUE_PROP_ID", "SAMPLE_PLATE_ID", "Max Conc", "Min Conc", "Slope", "Lower Limit", "Upper Limit", "Inflection Point", "ED Estimate", "ED Std Error", "ED Lower CI", "ED Upper CI", "ED Alpha") 
+names(out) <- c("SAMPLE_ID",
+                "EXPERIMENT_ID",
+                "PROTOCOL_ID",
+                "UNIQUE_PROP_ID",
+                "SAMPLE_PLATE_ID",
+                "Max Conc",
+                "Min Conc",
+                "Slope",
+                "Lower Limit",
+                "Upper Limit",
+                "Inflection Point",
+                "ED Estimate",
+                "ED Std Error",
+                "ED Lower CI",
+                "ED Upper CI",
+                "ED Alpha",
+                "LinFit slope:Estimate",
+                "LinFit yIntercept:Estimate",
+                "LinFit slope:Std. Error",    
+                "LinFit yIntercept:Std. Error",
+                "LinFit slope:t value",       
+                "LinFit yIntercept:t value",
+                "LinFit slope:Pr(>|t|)",  
+                "LinFit yIntercept:Pr(>|t|)") 
 out <- cbind(out,
             "fixedLower" = fixedLower,
             "fixedUpper" = fixedUpper,
@@ -154,12 +199,9 @@ out <- cbind(out,
             "EDLevel" = EDLevel,
             "EDType" = EDType)
            
-#Replace NaN with NA
-#out[is.na(out)] <- NA 
-
 #Convert specified columns to numeric
-cols = c(2, 6, 7,8,9,10,11,12,13,14,15);    
-out[,cols] = apply(out[,cols], 2, function(x) as.numeric(as.character(x)))
+char_cols = c(1,3,4,5,16,37);    
+out[,-char_cols] = apply(out[,-char_cols], 2, function(x) as.numeric(as.character(x)))
                   
 #Function to round all numeric columns in a data frame
 round_df <- function(df, digits) {
