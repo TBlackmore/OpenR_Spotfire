@@ -1,4 +1,4 @@
-df <- subset.data.frame(Input, Input$SAMPLE_ID == 'WEHI-1251425-001')
+df <- subset.data.frame(Input, Input$SAMPLE_ID == 'WEHI-1251426-001')
 load("debug.RData")
 library(plyr)
 library(drc)
@@ -20,7 +20,7 @@ slopeLimits = '-Inf,0'
 fitForEach = 'replicate'
 EDLevel = 50
 EDType
-linSlopeConfLimit = .1
+linSlopeConfLimit = 2
 
 #Inputs
 Input
@@ -153,7 +153,16 @@ fit4pl <- function (df) {
   else {ED_Alpha <- as.character(parms[5])}
   })
   
-  return(c(groups,parms,ED_Alpha, lin_flat))
+  highestPoint <- max(df$Normalized)
+  lowestPoint <- min(df$Normalized)
+  EDPoint <- ((EDLevel / 100) * (highestPoint - lowestPoint)) + lowestPoint
+  pointsAbove <- subset.data.frame(df, df$Normalized > EDPoint)
+  pointsBelow <- subset.data.frame(df, df$Normalized < EDPoint)
+  pointAbove <- subset.data.frame(df, df$Normalized == min(pointsAbove$Normalized))
+  pointBelow <- subset.data.frame(df, df$Normalized == min(pointsBelow$Normalized))
+  midConc <- mean(mean(pointBelow$CONC), mean(pointAbove$CONC))
+  
+  return(c(groups,parms,ED_Alpha, lin_flat, "midConc" = midConc))
 }
 
 # Group data by SAMPLE_ID and apply fit function to each group
@@ -183,7 +192,8 @@ names(out) <- c("SAMPLE_ID",
                 "LinFit slope:t value",       
                 "LinFit yIntercept:t value",
                 "LinFit slope:Pr(>|t|)",  
-                "LinFit yIntercept:Pr(>|t|)") 
+                "LinFit yIntercept:Pr(>|t|)",
+                "Simple ED Conc") 
 out <- cbind(out,
             "fixedLower" = fixedLower,
             "fixedUpper" = fixedUpper,
@@ -200,7 +210,7 @@ out <- cbind(out,
             "EDType" = EDType)
            
 #Convert specified columns to numeric
-char_cols = c(1,3,4,5,16,37);    
+char_cols = c(1,3,4,5,16,38);    
 out[,-char_cols] = apply(out[,-char_cols], 2, function(x) as.numeric(as.character(x)))
                   
 #Function to round all numeric columns in a data frame
